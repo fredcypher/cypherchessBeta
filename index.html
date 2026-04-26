@@ -1257,13 +1257,9 @@ if (dc !== 0 && dr !== 0 && Math.abs(dc) !== Math.abs(dr)) {
     const obstacle = this.boardIndex[checkCoord]?.piece;
 
     if (obstacle) {
-        // If we are doing a CheckScan, Spies are invisible
-        if (isCheckScan && obstacle.type.toLowerCase() === 'spy') {
-            // continue
-        } 
-        // 🚩 THE FIX: If we find a piece but it is NOT the destination square, it's a collision.
-        // If it IS the destination square, we allow the loop to finish.
-        else if (checkCoord !== end) { 
+        // 🚩 REMOVED: The "invisible spy" check. 
+        // Any piece (Spy or otherwise) now blocks the path.
+        if (checkCoord !== end) { 
             return false; 
         }
     }
