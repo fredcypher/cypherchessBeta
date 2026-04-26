@@ -603,31 +603,39 @@ scanCourtLineForKing: function(landingCoord, actorColor, targetType = 'King', ig
     const opponentColor = (aColor === 'white') ? 'black' : 'white';
     
     const landingRow = parseInt(landingCoord.slice(1));
-    const landingCol = landingCoord.charAt(0);
+    const allCols = ['z', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'];
+    const landingColIdx = allCols.indexOf(landingCoord.charAt(0));
 
     let coordsToScan = [];
-    // Vertical scan (Row 0-10)
-    for (let r = 0; r <= 10; r++) coordsToScan.push(`${landingCol}${r}`);
-    
-    // Horizontal scan (Columns z-i)
-    const allCols = ['z', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'];
+
+    // 1. ORTHOGONAL (Vertical & Horizontal)
+    for (let r = 0; r <= 10; r++) coordsToScan.push(`${allCols[landingColIdx]}${r}`);
     allCols.forEach(c => coordsToScan.push(`${c}${landingRow}`));
+
+    // 2. DIAGONAL (Four 45-degree vectors)
+    const directions = [
+        { dc: 1, dr: 1 }, { dc: 1, dr: -1 }, 
+        { dc: -1, dr: 1 }, { dc: -1, dr: -1 }
+    ];
+
+    directions.forEach(dir => {
+        let currC = landingColIdx + dir.dc;
+        let currR = landingRow + dir.dr;
+        // Scan until we hit the physical edge of the board index
+        while (currC >= 0 && currC <= 9 && currR >= 0 && currR <= 10) {
+            coordsToScan.push(`${allCols[currC]}${currR}`);
+            currC += dir.dc;
+            currR += dir.dr;
+        }
+    });
 
     for (let checkCoord of coordsToScan) {
         if (checkCoord === landingCoord) continue; 
         if (ignoreCoords.includes(checkCoord)) continue;
 
         const p = board[checkCoord]?.piece;
-
-        // If we find the target (King) of the opposite color
         if (p && p.type === targetType && p.color.toLowerCase() === opponentColor) {
-            
-            // Verify the physical path between landing square and target square is clear
             if (this.isPathClear(landingCoord, checkCoord, ignoreCoords)) {
-                
-                // We return the found piece and its coordinate regardless of distance.
-                // This allows Phase B of resolveFlipVictory to perform its long-distance 
-                // pattern matching (Shadow Line) and Phase A to handle Adjacency.
                 return { piece: p, coord: checkCoord };
             }
         }
