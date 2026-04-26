@@ -1,0 +1,31 @@
+{
+  "metadata": {
+    "generated": "4/16/2026, 11:24:08 PM"
+  },
+  "rules": {
+    "Turn_mngr_B": {
+      "White": {
+        "Turn": true
+      },
+      "Black": {
+        "Turn": false
+      }
+    },
+    "Turn_mngr_C_E": {
+      "White": {
+        "Turn": true
+      },
+      "Black": {
+        "Turn": true
+      }
+    },
+    "Turn_mngr_W": {
+      "White": {
+        "Turn": false
+      },
+      "Black": {
+        "Turn": true
+      }
+    }
+  }
+}
