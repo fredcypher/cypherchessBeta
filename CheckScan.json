@@ -107,7 +107,7 @@
       "Ffp": {
         "Ck": false,
         "Bk": false,
-        "Fk": false
+        "Fk": true
       },
       "Fffp": {
         "Ck": false,
@@ -224,7 +224,7 @@
       "Ffp": {
         "Ck": false,
         "Bk": false,
-        "Fk": false
+        "Fk": true
       },
       "Fffp": {
         "Ck": false,
