@@ -1458,6 +1458,15 @@ handleSquareClick: function(coord) {
         const end = coord;
         const actor = selected.piece;
         const targetPiece = board[end].piece;
+
+        / 🚩 THE FRIEND-OR-FOE GUARD:
+        // If there's a piece at the destination AND it's the same color as the actor, STOP.
+        if (targetPiece && targetPiece.color === actor.color) {
+            console.warn("🛑 PROTOCOL VIOLATION: Friendly fire is not permitted.");
+            this.state.selectedPiece = null;
+            this.renderBoard();
+            return;
+        }
         
         // 🚩 GEOGRAPHY DEFINITIONS (Critical for Step 4)
         const startSector = this.getSector(start);
