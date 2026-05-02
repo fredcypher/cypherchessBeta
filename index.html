@@ -185,6 +185,7 @@
         lastMoveBy: 'Black',   // CCCM 1.a Bootstrap: Set to Black so White can move first
         subState: 'Normal',    // Default sub-state
         _defaultState: 'D1',
+        positionHistory: [],
         
         // Getter: Returns the current state when you call manager.state.defaultState
         get defaultState() { 
@@ -205,6 +206,17 @@
         lastMove: null,
         selectedPiece: null 
     },
+
+generateBoardFingerprint: function() {
+    let fingerprint = this.state.activeTurn + "|";
+    for (const coord in this.boardIndex) {
+        const piece = this.boardIndex[coord].piece;
+        if (piece) {
+            fingerprint += `${coord}:${piece.type}${piece.color},`;
+        }
+    }
+    return fingerprint;
+},
 
     /**
      * Protocol Step 0: Geography Initialization
@@ -493,10 +505,24 @@ try {
         // We return here because the game is over; no need to advance turn.
         return; 
     }
+
+// --- REPETITION PROTOCOL ---
+    if (moveRecord.isCapture) {
+        this.state.positionHistory = [];
+    } else {
+        const currentPos = this.generateBoardFingerprint();
+        this.state.positionHistory.push(currentPos);
+
+        const occurrences = this.state.positionHistory.filter(p => p === currentPos).length;
+        if (occurrences >= 3) {
+            console.warn("🛑 PROTOCOL TRAP: Threefold Repetition Detected.");
+            this.renderBoard(); 
+            this.terminateGame("DRAW BY REPETITION", "None");
+            return; 
+        }
+    }
     
     this.renderBoard();
-
-    // 🚩 THE MISSING LINK: Hand off to the scanner
     console.log("🏁 EXIT: executeMove complete. Handing off to advanceTurn...");
     this.advanceTurn();
 },
@@ -1136,30 +1162,33 @@ checkFlipProtocol: function(actor, start, end) {
     },
 
     terminateGame: function(reason, winner) {
-    console.log(`%c GAME OVER: ${reason}. Winner: ${winner.toUpperCase()} %c`, 
+    console.log(`%c GAME OVER: ${reason}. Winner: ${winner ? winner.toUpperCase() : 'NONE'} %c`, 
         "color: white; background: red; font-weight: bold;", "");
     
-    // 1. Lock the State
     this.state.activeTurn = "GameOver";
     this.state.subState = "GameOver"; 
     
-    // 2. UI Hook: Display the end-game overlay
     const statusDisplay = document.getElementById('status-message');
     if (statusDisplay) {
-        statusDisplay.innerHTML = `<h1>${reason}</h1><p>${winner.toUpperCase()} VICTORY</p>`;
+        // Handle Draw vs Victory text
+        if (winner === "None" || !winner) {
+            statusDisplay.innerHTML = `<h1>${reason}</h1><p>STALEMATE OF THE SHADOWS</p>`;
+        } else {
+            statusDisplay.innerHTML = `<h1>${reason}</h1><p>${winner.toUpperCase()} VICTORY</p>`;
+        }
         statusDisplay.classList.add('active');
     }
 
-    // 3. Archiver Notation Stamp (For Players)
-    // Find the last move entry in your move log/history UI
     const moveLog = document.getElementById('move-history') || document.querySelector('.archiver-list');
     if (moveLog && moveLog.lastElementChild) {
         const lastEntry = moveLog.lastElementChild;
         
         if (reason === "Checkmate") {
-            lastEntry.innerHTML += " #"; // The Checkmate symbol
-        } else if (reason === "Flip") {
-            lastEntry.innerHTML += " @"; // Your specific Flip notation
+            lastEntry.innerHTML += " #"; 
+        } else if (reason === "FLIP VICTORY") {
+            lastEntry.innerHTML += " @"; 
+        } else if (reason === "DRAW BY REPETITION") {
+            lastEntry.innerHTML += " ="; // The standard chess notation for Draw
         }
     }
 },
@@ -1328,13 +1357,13 @@ findKing: function(color) {
     },
 
 isCheckmate: function(playerColor) {
-    const manager = window.CypherManager;
+    const manager = this; // Use 'this' to ensure we stay in context
     const board = this.boardIndex;
     
-    // --- 1. THE SHORT CIRCUIT ---
     const kingPos = this.findKing(playerColor);
     if (!kingPos) return false;
 
+    // 1. Verify if the King is actually in Check first
     let isKingCurrentlyInCheck = false;
     for (const coord in board) {
         const p = board[coord].piece;
@@ -1348,9 +1377,8 @@ isCheckmate: function(playerColor) {
 
     if (!isKingCurrentlyInCheck) return false; 
 
-    console.log(`📡 CHECKMATE PROTOCOL: ${playerColor} King is in check. Scanning escapes...`);
-
-    // --- 2. THE FULL SCAN ---
+    // 2. THE ESCAPE SCAN
+    // We must check EVERY piece of the current player to see if ANY move resolves the check
     for (const startCoord in board) {
         const piece = board[startCoord].piece;
         if (!piece || piece.color.toLowerCase() !== playerColor.toLowerCase()) continue;
@@ -1361,36 +1389,38 @@ isCheckmate: function(playerColor) {
             const targetPiece = board[endCoord].piece;
             const isCapture = !!targetPiece;
 
-            // 🚩 THE OCCUPANCY GUARD: Skip if destination is occupied by a friendly piece
-            if (isCapture && targetPiece.color.toLowerCase() === piece.color.toLowerCase()) {
-                continue; 
-            }
+            // Basic Collision/Friendly Fire Guard
+            if (isCapture && targetPiece.color.toLowerCase() === piece.color.toLowerCase()) continue;
 
-            const endSector = manager.getSector(endCoord);
-            const tableKey = manager.getPermissionTable(isCapture ? "capture" : "move", piece.color);
-            const rulesSource = window.MasterRules;
-            const table = rulesSource[tableKey];
-            const tags = manager.generateMoveTags(piece, startCoord, endCoord);
+            // --- THE CROSS-SECTOR GATE ---
+            // Ensure we generate tags for the specific sectors involved
+            const tags = this.generateMoveTags(piece, startCoord, endCoord);
+            const tableKey = this.getPermissionTable(isCapture ? "capture" : "move", piece.color);
+            const table = window.MasterRules[tableKey];
 
-            // Check JSON first, then check Field Fallback
+            // 🚩 THE FIX: Check if the protocol allows the move to the destination (e.g. into Court)
             let rawPermission = table && table[tags.attackerTag] ? table[tags.attackerTag][tags.targetTag] : null;
-            if (rawPermission === null && endSector === 'F') {
+            
+            // Field Fallback
+            if (rawPermission === null && this.getSector(endCoord) === 'F') {
                 rawPermission = true; 
             }
 
-            const isMoveAllowedByProtocol = (rawPermission === true || String(rawPermission).toUpperCase() === "TRUE");
+            const isAllowedByProtocol = (rawPermission === true || String(rawPermission).toUpperCase() === "TRUE");
 
-            if (isMoveAllowedByProtocol) {
-                // Check physical line-of-sight & Boilerplate Rules
-                if (manager.checkBoilerplateMovement(piece, startCoord, endCoord) && manager.isPathClear(startCoord, endCoord)) {
+            if (isAllowedByProtocol) {
+                // Check physical line-of-sight and leap mechanics
+                if (this.checkBoilerplateMovement(piece, startCoord, endCoord) && this.isPathClear(startCoord, endCoord)) {
                     
-                    const isAxiomValid = manager.validateProximityAxioms(piece, endCoord);
-                    const isLegalSpy = manager.isSpyProximityLegal(piece, endCoord, startCoord);
-                    const proximityPass = isAxiomValid && isLegalSpy;
+                    const proximityPass = this.validateProximityAxioms(piece, endCoord) && 
+                                          this.isSpyProximityLegal(piece, endCoord, startCoord);
 
-                    // Final safety check: does this move actually remove the Check?
-                    if (proximityPass && manager.isMoveSafeForKing(startCoord, endCoord)) {
-                        console.log(`✅ VALID ESCAPE FOUND: ${piece.type} at ${startCoord} can move to ${endCoord}`);
+                    // 🚩 THE ULTIMATE TRUTH: Simulation
+                    // isMoveSafeForKing will virtually place the King in the Court.
+                    // Because your checkScan uses CheckScan.json, if there is no Court Spy (Cs),
+                    // then no piece can 'Check' the King in the Court, and this returns TRUE.
+                    if (proximityPass && this.isMoveSafeForKing(startCoord, endCoord)) {
+                        console.log(`✅ ESCAPE FOUND: ${piece.type} to ${endCoord} (${this.getSector(endCoord)})`);
                         return false; 
                     }
                 }
@@ -1398,7 +1428,7 @@ isCheckmate: function(playerColor) {
         }
     }
     
-    return true; // No escapes found
+    return true; 
 },
 
 loadMasterRules: async function() {
@@ -1778,6 +1808,7 @@ window.CypherManager.resolveFlipVictory = window.CypherManager.resolveFlipVictor
     window.CypherManager.isCheckmate = window.CypherManager.isCheckmate.bind(window.CypherManager);
 window.CypherManager.advanceTurn = window.CypherManager.advanceTurn.bind(window.CypherManager);
 window.CypherManager.terminateGame = window.CypherManager.terminateGame.bind(window.CypherManager);
+window.CypherManager.generateBoardFingerprint = window.CypherManager.generateBoardFingerprint.bind(window.CypherManager);
 }
         
         window.CypherManager.initBoardIndex();
@@ -1793,3 +1824,4 @@ initializeCypherEngine();
     </script>
 </body>
 </html>
+
